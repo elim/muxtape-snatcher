@@ -8,111 +8,118 @@
 #
 #= muxtape から mp3 を抜いてきます。
 #
+# 内容が内容だけに表に出せなげ。
+#
 #
 #==依存ライブラリ
 #
 #*mechanize
-#*ruby-mp3info
 #
 #
 #==使用方法
-#% ./muxtape-snatcher --target <id>
+#% ./muxtape-snatcher --target=<id>
 #
 
-%w[
-  rubygems
-  mechanize
+require 'rubygems'
+require 'mechanize'
+require 'logger'
 
-  logger
-  optparse
-].each{|lib|require lib}
-
-
-class MuxTapeSnatcher < WWW::Mechanize
-  attr_accessor :agent
-  attr_accessor :log
-
-  AGENT_ALIASES_POPULAR_KEYS = WWW::Mechanize::AGENT_ALIASES.keys.map do |k|
-    k if k =~ /(?:Mac|Win|Linux).+/
-  end.compact
-
-  def set_random_user_agent
-    self.user_agent_alias =
-      AGENT_ALIASES_POPULAR_KEYS[rand(AGENT_ALIASES_POPULAR_KEYS.length)]
+class MuxTapeSnatcher
+  def initialize(opts = {})
+    @target = opts[:target]
+    @agent  = WWW::Mechanize.new do |a|
+      a.max_history      = 1
+      a.user_agent_alias = 'Mac FireFox'
+      a.log              = Logger.new(opts[:log_output])
+      a.log.level        = opts[:log_level]
+    end
   end
 
-  def get(uri)
+  def run
+    if @target
+      get_song(analyzing_tape_page)
+    else 
+      STDERR.puts('Oops. Please. ID.')
+    end
+  end
+
+  private
+  def fetch(uri)
     begin
-      sleep 3 #wait
-      set_random_user_agent
-      super(uri)
+      sleep 2 #wait
+      @agent.get(uri)
     rescue Timeout::Error
-      log.warn "  caught Timeout::Error !"
+      @agent.log.warn "  caught Timeout::Error !"
       retry
     rescue WWW::Mechanize::ResponseCodeError => e
       case e.response_code
       when "502"
-        log.warn "  caught Net::HTTPBadGateway !"
+        @agent.log.warn "  caught Net::HTTPBadGateway !"
         retry
       when "404"
-        log.warn "  caught Net::HTTPNotFound !"
+        @agent.log.warn "  caught Net::HTTPNotFound !"
       else
-        log.warn "  caught Excepcion !" + e.response_code
+        @agent.log.warn "  caught Excepcion !" + e.response_code
       end
     end
   end
 
-  def initialize
-    super
-    self.max_history = 1
-    options[:log_output]  = STDERR
-    options[:log_level]   = Logger::WARN
-
-    OptionParser.new do |opt|
-      opt.on('-t target', '--target=target', 'target user') do |arg|
-        options[:target] = arg
-      end
-      opt.on('-v', '--verbose', 'verbose mode') do |arg|
-        options[:log_level] = Logger::INFO
-      end
-      opt.on('-d', '--debug', 'debug mode') do |arg|
-        options[:log_level]  = Logger::DEBUG
-      end
-      opt.parse!
-    end
-
-    self.log = Logger.new(options[:log_output])
-    self.log.level = options[:log_level]
-
-    tape_page(options[:target]) if options[:target]
-  end
-
-  def tape_page(id)
-    page = get("http://#{id}.muxtape.com/")
+  def analyzing_tape_page 
+    page = fetch("http://#{@target}.muxtape.com/")
     songs, signatures =
       page.search("script[text()*='Kettle']").inner_text.
       match(/(\[.+?\]).+(\[.+?\])/)[1, 2]
 
-    songs_and_signatures = eval(songs).zip(eval(signatures))
+    (1..songs.length).zip(eval(songs), eval(signatures))
+  end
 
-    songs_and_signatures.each_with_index do |pair, idx|
-      get_song(song_url(pair[0], pair[1]), id, idx + 1)
+  def get_song(table)
+    table.each do |record|
+      idx       = record[0]
+      song_id   = record[1]
+      signature = record[2]
+
+      puts "fetching #{idx} of #{table.length}..."
+      
+      Object::File::open(sprintf("%02d_%s.mp3", idx, @target), 'w') do |f|
+        f.binmode
+        f.write fetch(song_url(song_id, signature)).body
+      end
     end
-
   end
 
   def song_url(song_id, signature)
     "http://muxtape.s3.amazonaws.com/songs/#{song_id}" +
       "?PLEASE=DO_NOT_STEAL_MUSIC&#{signature}"
   end
-
-  def get_song(uri, id, idx)
-    Object::File::open(sprintf("%02d_%s.mp3", idx, id), 'w') do |f|
-      f.binmode
-      f.write get(uri).body
-    end
-  end
-
 end
 
-MuxTapeSnatcher.new if $0 == __FILE__
+
+if $0 == __FILE__
+  require 'optparse'
+
+  opts = {
+    :target     => nil,
+    :log_output => STDERR,
+    :log_level  => Logger::WARN
+  }
+
+  OptionParser.new do |parser|
+    parser.instance_eval do
+      on('-t target', '--target=target', 'target user') do |arg|
+        opts[:target] = arg
+      end
+
+      on('-v', '--verbose', 'verbose mode') do |arg|
+        opts[:log_level] = Logger::INFO
+      end
+
+      on('-d', '--debug', 'debug mode') do |arg|
+        opts[:log_level]  = Logger::DEBUG
+      end
+      parse!
+    end
+  end
+  
+  MuxTapeSnatcher.new(opts).run
+end
