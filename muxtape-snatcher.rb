@@ -70,7 +70,10 @@ class MuxTapeSnatcher
       page.search("script[text()*='Kettle']").inner_text.
       match(/(\[.+?\]).+(\[.+?\])/)[1, 2]
 
-    (1..songs.length).zip(eval(songs), eval(signatures))
+    songs      = eval(songs)
+    signatures = eval(signatures)
+
+    (1..songs.length).zip(songs, signatures)
   end
 
   def get_song(table)
