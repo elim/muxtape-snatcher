@@ -37,7 +37,7 @@ class MuxTapeSnatcher
 
   def run
     if @target
-      get_song(analyzing_tape_page)
+      get_song
     else 
       STDERR.puts('Oops. Please. ID.')
     end
@@ -76,15 +76,15 @@ class MuxTapeSnatcher
     (1..songs.length).zip(songs, signatures)
   end
 
-  def get_song(table)
-    table.each do |record|
-      idx       = record[0]
+  def get_song
+    analyzing_tape_page.each do |record|
+      index     = record[0]
       song_id   = record[1]
       signature = record[2]
 
-      puts "fetching #{idx} of #{table.length}..."
+      puts "fetching #{index} of #{table.length}..."
       
-      Object::File::open(sprintf("%02d_%s.mp3", idx, @target), 'w') do |f|
+      Object::File::open(sprintf("%02d_%s.mp3", index, @target), 'w') do |f|
         f.binmode
         f.write fetch(song_url(song_id, signature)).body
       end
