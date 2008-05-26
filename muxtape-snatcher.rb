@@ -77,7 +77,8 @@ class MuxTapeSnatcher
   end
 
   def get_song
-    analyzing_tape_page.each do |record|
+    table = analyzing_tape_page
+    table.each do |record|
       index     = record[0]
       song_id   = record[1]
       signature = record[2]
